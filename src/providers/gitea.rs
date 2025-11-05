@@ -22,8 +22,7 @@ struct GiteaRepository {
     html_url: String,
     stars_count: Option<u64>,
     language: Option<String>,
-    #[serde(default)]
-    created_at: Option<String>,
+    updated_at: Option<String>,
 }
 
 impl Gitea {
@@ -33,31 +32,28 @@ impl Gitea {
         })
     }
 
+    /// Create a Gitea provider with a custom HttpClient
+    #[allow(dead_code)]
+    pub fn with_client(http: HttpClient) -> Self {
+        Self { http }
+    }
+
     /// Fetch repositories from Gitea instance
     async fn fetch_repos(
         &self,
         base_url: &str,
         token: Option<&str>,
     ) -> Result<Vec<GiteaRepository>> {
-        // Get today's date for filtering
-        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-
-        // Search for recently created repos, sorted by stars
-        let url = format!(
-            "{base_url}/api/v1/repos/search?sort=stars&order=desc&limit=50"
-        );
+        // Search for recently updated repos (sorted by update time)
+        let url = format!("{base_url}/api/v1/repos/search?sort=updated&order=desc&limit=100");
 
         let response: GiteaSearchResponse = self.http.get_json(&url, token).await?;
 
-        // Filter repos created today
+        // Return repos with at least 1 star (Gitea has smaller community)
         let filtered: Vec<_> = response
             .data
             .into_iter()
-            .filter(|repo| {
-                repo.created_at
-                    .as_ref()
-                    .is_some_and(|date| date.starts_with(&today))
-            })
+            .filter(|repo| repo.stars_count.unwrap_or(0) >= 1)
             .collect();
 
         Ok(filtered)
@@ -80,10 +76,7 @@ impl Provider for Gitea {
         limit: usize,
         langs: &LanguageFilter,
     ) -> Result<Vec<Repo>> {
-        let base_url = cfg
-            .base_url
-            .as_deref()
-            .unwrap_or("https://gitea.com");
+        let base_url = cfg.base_url.as_deref().unwrap_or("https://gitea.com");
 
         let repositories = self.fetch_repos(base_url, cfg.token.as_deref()).await?;
 
@@ -91,16 +84,24 @@ impl Provider for Gitea {
             .into_iter()
             .filter(|r| langs.matches(r.language.as_ref()))
             .take(limit)
-            .map(|r| Repo {
-                provider: self.id().to_string(),
-                icon: self.icon().to_string(),
-                name: r.full_name,
-                language: r.language,
-                description: r.description,
-                url: r.html_url,
-                stars_today: None, // Gitea API doesn't provide daily stars
-                stars_total: r.stars_count,
-                approximated: true,
+            .map(|r| {
+                let last_activity = r
+                    .updated_at
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc));
+
+                Repo {
+                    provider: self.id().to_string(),
+                    icon: self.icon().to_string(),
+                    name: r.full_name,
+                    language: r.language,
+                    description: r.description,
+                    url: r.html_url,
+                    stars_today: None, // Gitea API doesn't provide daily stars
+                    stars_total: r.stars_count,
+                    last_activity,
+                    topics: vec![], // Gitea API doesn't provide topics in search
+                }
             })
             .collect();
 
@@ -121,11 +122,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_gitea_api() {
-        let gitea = Gitea::new(10).unwrap();
+        // Use max_retries(0) to avoid retry delays in tests
+        let http = HttpClient::builder()
+            .timeout_secs(10)
+            .max_retries(0)
+            .build()
+            .unwrap();
+        let gitea = Gitea::with_client(http);
         let cfg = ProviderCfg {
             timeout_secs: 10,
             token: None,
             base_url: Some("https://gitea.com".to_string()),
+            exclude_topics: vec![],
         };
         let filter = LanguageFilter::new(vec![]);
 
@@ -136,7 +144,7 @@ mod tests {
                 for repo in repos {
                     assert_eq!(repo.provider, "gitea");
                     assert_eq!(repo.icon, "[GE]");
-                    assert!(repo.approximated);
+                    assert!(repo.last_activity.is_some());
                 }
             }
             Err(e) => {

@@ -2,7 +2,25 @@
 
 > **Trending repositories of the day** - minimal MOTD CLI
 
-A lightweight, dependency-light CLI tool that prints a Message of the Day (MOTD) with the top trending repositories from GitHub, GitLab, and Gitea.
+A lightweight CLI tool that prints a Message of the Day (MOTD) with the top trending repositories from GitHub, GitLab, and Gitea.
+
+Inspired by [github-trending-cli](https://github.com/psalias2006/github-trending-cli).
+
+## Example Output
+
+<!-- EXAMPLE_OUTPUT_START -->
+```
+
+```
+
+**Legend:**
+- `[GH]` = GitHub, `[GL]` = GitLab, `[GE]` = Gitea
+- `★N today` = Stars gained today
+- `★N` = Total stars (when daily stars unavailable)
+- `~` = Approximated (not from official trending API)
+
+*Note: Example output is automatically updated by CI on each push and daily at midnight UTC.*
+<!-- EXAMPLE_OUTPUT_END -->
 
 ## Features
 
@@ -10,10 +28,14 @@ A lightweight, dependency-light CLI tool that prints a Message of the Day (MOTD)
 - **Parallel fetching**: Concurrent API calls with configurable timeout
 - **Smart caching**: Filesystem-based cache with TTL (XDG-compliant)
 - **Flexible configuration**: TOML config, environment variables, CLI flags
-- **Language filtering**: Filter repositories by programming language
+- **Advanced filtering**:
+  - Language filtering (e.g., `--lang rust,go`)
+  - Star threshold filtering (e.g., `--min-stars 100`)
+  - Topic exclusion for GitHub (e.g., `--exclude-topics awesome`)
 - **Beautiful output**: Colored terminal output with nerd font icons
 - **JSON export**: Optional JSON output for scripting
-- **Zero HTML scraping**: Uses only official APIs
+- **Shell completions**: Generate completions for Bash, Fish, Zsh, PowerShell
+- **MOTD Integration**: Easy integration as Message of the Day
 
 ## Installation
 
@@ -47,6 +69,15 @@ trotd --max 5
 # Filter by language
 trotd --lang rust,go
 
+# Filter by star count (minimum 100 stars)
+trotd --min-stars 100
+
+# Exclude specific topics from GitHub
+trotd --exclude-topics awesome,awesome-list
+
+# Combine filters
+trotd --lang rust --min-stars 50 --exclude-topics web
+
 # Specific providers only (gh=GitHub, gl=GitLab, ge=Gitea)
 trotd --provider gh,gl
 
@@ -57,20 +88,43 @@ trotd --json
 trotd --no-cache
 ```
 
-### Example Output
+### Shell Completions
 
-```
-[GH] getzola/zola • Rust • A fast static site generator • ★50 today
-[GH] rust-lang/rust • Rust • Empowering everyone to build reliable... • ★120 today
-[GL] gitlab-org/gitlab • Ruby • GitLab Community Edition • ★2500 ~
-[GE] gitea/gitea • Go • Git with a cup of tea • ★35000 ~
+Generate shell completions for better UX:
+
+```bash
+# Bash
+trotd completions bash > /etc/bash_completion.d/trotd
+
+# Fish
+trotd completions fish > ~/.config/fish/completions/trotd.fish
+
+# Zsh
+trotd completions zsh > ~/.zsh/completions/_trotd
+
+# PowerShell
+trotd completions powershell > trotd.ps1
 ```
 
-**Legend:**
-- `[GH]` = GitHub, `[GL]` = GitLab, `[GE]` = Gitea
-- `★N today` = Stars gained today
-- `★N` = Total stars (when daily stars unavailable)
-- `~` = Approximated (not from official trending API)
+### MOTD Integration
+
+See [examples/README.md](examples/README.md) for detailed integration guides.
+
+#### Quick Start
+
+Add to your shell RC file (`~/.bashrc`, `~/.zshrc`, or `~/.config/fish/config.fish`):
+
+```bash
+if command -v trotd &> /dev/null; then
+    trotd 2>/dev/null || true
+fi
+```
+
+Or use the automated setup script:
+
+```bash
+sudo bash examples/motd-setup.sh
+```
 
 ## Configuration
 
@@ -88,6 +142,8 @@ max_per_provider = 3
 timeout_secs = 6
 cache_ttl_mins = 60
 language_filter = ["rust", "go"]
+min_stars = 50              # Filter repos below 50 stars
+ascii_only = false          # Hide non-ASCII repo names
 
 [providers]
 github = true
@@ -101,6 +157,9 @@ gitea_token = ""
 
 [gitea]
 base_url = "https://gitea.com"
+
+[github]
+exclude_topics = ["awesome", "awesome-list"]  # Exclude these topics
 ```
 
 ### Environment Variables
@@ -110,6 +169,8 @@ Environment variables override config file settings:
 ```bash
 export TROTD_MAX_PER_PROVIDER=5
 export TROTD_LANGUAGE_FILTER="rust,go,python"
+export TROTD_MIN_STARS=100
+export TROTD_GITHUB_EXCLUDE_TOPICS="awesome,tutorial"
 export TROTD_GITEA_BASE_URL="https://codeberg.org"
 export TROTD_GITHUB_TOKEN="ghp_..."
 export TROTD_GITLAB_TOKEN="glpat-..."
@@ -121,17 +182,21 @@ export TROTD_GITEA_TOKEN="..."
 CLI flags override both config file and environment variables:
 
 ```bash
-trotd --max 5 --lang rust --provider gh --no-cache --json
+trotd --max 5 --lang rust --min-stars 100 --exclude-topics awesome --provider gh --no-cache --json
 ```
 
 ## Provider Details
 
 ### GitHub
 
-- **API**: GitHub trending API (unofficial but reliable)
-- **Endpoint**: `https://gh-trending-api.vicary.workers.dev/repositories`
-- **Approximated**: No (official trending data)
-- **Authentication**: Optional (increases rate limits)
+- **Method**: HTML scraping of trending page (default) or Search API (when topic exclusion is used)
+- **Endpoint**: `https://github.com/trending` or `/search/repositories`
+- **Features**:
+  - Official trending data from HTML scraping
+  - Topic exclusion (requires API mode)
+  - Language filtering
+- **Approximated**: No (HTML scraping), Yes (API mode)
+- **Authentication**: Optional (increases rate limits, required for API mode)
 
 ### GitLab
 
@@ -144,9 +209,9 @@ trotd --max 5 --lang rust --provider gh --no-cache --json
 
 - **API**: Gitea REST API v1
 - **Endpoint**: `{base_url}/api/v1/repos/search`
-- **Approximated**: Yes (search API with date filtering)
+- **Approximated**: Yes (search API sorted by recent activity)
 - **Authentication**: Optional
-- **Configurable**: Custom base URL (e.g., Codeberg, self-hosted)
+- **Configurable**: Custom base URL (supports Codeberg, self-hosted instances)
 
 ## Architecture
 
@@ -165,9 +230,9 @@ src/
 ```
 
 **Design Philosophy:**
-- **Minimal dependencies**: 16 total crates
+- **Minimal dependencies**: Few runtime dependencies
 - **Clean code**: Strict lints (forbid unsafe, clippy pedantic)
-- **No HTML scraping**: API-only approach
+- **Hybrid approach**: HTML scraping for GitHub trending, APIs for GitLab/Gitea
 - **Parallel execution**: FuturesUnordered for concurrent fetching
 - **Error resilience**: Partial results on provider failures
 
@@ -226,33 +291,21 @@ Hooks run:
 2. `cargo clippy --all-targets --all-features -- -D warnings`
 3. `cargo nextest run` (or `cargo test` if nextest unavailable)
 
-## Project Goals
-
-- **Minimal**: Small binary, few dependencies
-- **Fast**: Parallel fetching, smart caching
-- **Clean**: Well-tested, documented, maintainable
-- **Flexible**: Multiple providers, multiple config methods
-- **Reliable**: API-only (no HTML scraping)
-
-## Non-Goals
-
-- HTML scraping (brittle, unreliable)
-- Bitbucket, GitKraken, SourceTree support
-- Interactive TUI (use as simple MOTD)
-- Historical trending data
-
 ## Dependencies
 
-**Runtime** (13 crates):
+**Runtime** (17 crates):
 - tokio, reqwest - Async HTTP
 - serde, serde_json, toml - Serialization
-- clap - CLI parsing
+- clap, clap_complete - CLI parsing and shell completions
 - anyhow, thiserror - Error handling
 - dirs - XDG directories
 - async-trait - Trait async methods
 - colored - Terminal colors
 - chrono - Date handling
 - futures - Concurrent streams
+- scraper - HTML parsing (GitHub trending)
+- tokio-retry - Retry logic
+- regex - Text processing
 
 **Development** (1 crate):
 - mockito - HTTP mocking
@@ -261,12 +314,6 @@ Hooks run:
 
 MIT License - see [LICENSE](LICENSE) file
 
-## Acknowledgments
-
-Inspired by:
-- [vil2json](https://github.com/schausberger/corne-colemak-dh-eurkey/tree/main/tools/vil2json) - Clean single-binary Rust tool
-- [stethoscope](https://github.com/schausberger/stethoscope) - Workspace architecture and testing patterns
-
 ## Contributing
 
 Contributions welcome! Please:
@@ -274,12 +321,3 @@ Contributions welcome! Please:
 2. Ensure `cargo clippy` passes with no warnings
 3. Add tests for new features
 4. Update README if adding configuration options
-
-## Roadmap
-
-- [ ] Codeberg support (via Gitea provider)
-- [ ] SourceHut support (if API available)
-- [ ] Filtering by stars threshold
-- [ ] Excluding specific topics
-- [ ] Custom icon/color schemes
-- [ ] Shell completion scripts

@@ -2,11 +2,22 @@
 # Place in ~/.config/trotd/trotd.toml or ./trotd.toml
 
 [general]
-# Maximum repositories per provider
-max_per_provider = 3
+# Maximum repositories per provider (default for all providers)
+max_per_provider = 2
 
-# HTTP request timeout in seconds
+# Per-provider entry limits (overrides max_per_provider)
+# Uncomment to customize how many entries each provider shows
+github_max_entries = 3
+gitlab_max_entries = 1
+gitea_max_entries = 1
+
+# HTTP request timeout in seconds (deprecated - use per-provider timeouts below)
 timeout_secs = 6
+
+# Per-provider HTTP timeouts in seconds
+github_timeout_secs = 15
+gitlab_timeout_secs = 10
+gitea_timeout_secs = 10
 
 # Cache time-to-live in minutes
 cache_ttl_mins = 60
@@ -14,6 +25,9 @@ cache_ttl_mins = 60
 # Filter by programming languages (empty = all languages)
 # language_filter = ["rust", "go", "python"]
 language_filter = []
+
+# Filter out non-ASCII repos (hides Chinese/CJK projects)
+ascii_only = true
 
 [providers]
 # Enable/disable individual providers

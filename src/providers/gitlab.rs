@@ -20,6 +20,7 @@ struct GitLabProject {
     web_url: String,
     #[serde(default)]
     topics: Vec<String>,
+    last_activity_at: Option<String>,
 }
 
 impl GitLab {
@@ -29,39 +30,81 @@ impl GitLab {
         })
     }
 
-    /// Fetch recently created projects from GitLab
-    async fn fetch_projects(&self, token: Option<&str>) -> Result<Vec<GitLabProject>> {
-        // Get today's date in ISO format
-        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    /// Create a GitLab provider with a custom HttpClient
+    #[allow(dead_code)]
+    pub fn with_client(http: HttpClient) -> Self {
+        Self { http }
+    }
 
-        // Search for projects created today, sorted by stars
+    /// Fetch recently active projects from GitLab
+    async fn fetch_projects(&self, token: Option<&str>) -> Result<Vec<GitLabProject>> {
+        // Get date from 7 days ago in ISO format
+        let week_ago = (chrono::Utc::now() - chrono::Duration::days(7))
+            .format("%Y-%m-%dT00:00:00Z")
+            .to_string();
+
+        // Search for projects with recent activity, sorted by activity date (descending)
         let url = format!(
-            "https://gitlab.com/api/v4/projects?order_by=created_at&sort=desc&created_after={today}&per_page=50"
+            "https://gitlab.com/api/v4/projects?order_by=last_activity_at&sort=desc&last_activity_after={week_ago}&per_page=100"
         );
 
-        self.http.get_json(&url, token).await
+        let projects: Vec<GitLabProject> = self.http.get_json(&url, token).await?;
+
+        // Filter to only repos with at least 10 stars (actually popular)
+        Ok(projects
+            .into_iter()
+            .filter(|p| p.star_count.unwrap_or(0) >= 10)
+            .collect())
     }
 
     /// Extract language from topics (GitLab uses topics, not a dedicated language field)
     fn extract_language(topics: &[String]) -> Option<String> {
-        // Common programming language tags
+        // Common programming language tags (lowercase for comparison)
         let languages = [
-            "rust", "go", "python", "javascript", "typescript", "java", "c", "cpp",
-            "csharp", "ruby", "php", "swift", "kotlin", "scala",
+            "rust",
+            "go",
+            "golang",
+            "python",
+            "javascript",
+            "typescript",
+            "java",
+            "c",
+            "cpp",
+            "c++",
+            "csharp",
+            "c#",
+            "ruby",
+            "php",
+            "swift",
+            "kotlin",
+            "scala",
+            "haskell",
+            "elixir",
+            "erlang",
         ];
 
         topics
             .iter()
             .find(|topic| {
                 let lower = topic.to_lowercase();
-                languages.iter().any(|&lang| lower.contains(lang))
+                // Use exact match instead of contains to avoid false positives
+                languages.iter().any(|&lang| lower == lang)
             })
             .map(|s| {
-                // Capitalize first letter
-                let mut chars = s.chars();
-                match chars.next() {
-                    None => String::new(),
-                    Some(first) => first.to_uppercase().chain(chars).collect(),
+                // Normalize language name
+                let lower = s.to_lowercase();
+                match lower.as_str() {
+                    "golang" => "Go".to_string(),
+                    "c++" => "C++".to_string(),
+                    "c#" => "C#".to_string(),
+                    _ => {
+                        // Capitalize first letter
+                        let mut chars = s.chars();
+                        match chars.next() {
+                            None => String::new(),
+                            Some(first) => first.to_uppercase().chain(chars).collect(),
+                        }
+                    }
                 }
             })
     }
@@ -93,16 +136,24 @@ impl Provider for GitLab {
             })
             .filter(|(_, lang)| langs.matches(lang.as_ref()))
             .take(limit)
-            .map(|(p, language)| Repo {
-                provider: self.id().to_string(),
-                icon: self.icon().to_string(),
-                name: p.path_with_namespace,
-                language,
-                description: p.description,
-                url: p.web_url,
-                stars_today: None, // GitLab API doesn't provide daily stars
-                stars_total: p.star_count,
-                approximated: true,
+            .map(|(p, language)| {
+                let last_activity = p
+                    .last_activity_at
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc));
+
+                Repo {
+                    provider: self.id().to_string(),
+                    icon: self.icon().to_string(),
+                    name: p.path_with_namespace,
+                    language,
+                    description: p.description,
+                    url: p.web_url,
+                    stars_today: None, // GitLab API doesn't provide daily stars
+                    stars_total: p.star_count,
+                    last_activity,
+                    topics: p.topics,
+                }
             })
             .collect();
 
@@ -134,19 +185,23 @@ mod tests {
             GitLab::extract_language(&["web".to_string(), "python".to_string()]),
             Some("Python".to_string())
         );
-        assert_eq!(
-            GitLab::extract_language(&["web".to_string()]),
-            None
-        );
+        assert_eq!(GitLab::extract_language(&["web".to_string()]), None);
     }
 
     #[tokio::test]
     async fn test_gitlab_api() {
-        let gitlab = GitLab::new(10).unwrap();
+        // Use max_retries(0) to avoid retry delays in tests
+        let http = HttpClient::builder()
+            .timeout_secs(10)
+            .max_retries(0)
+            .build()
+            .unwrap();
+        let gitlab = GitLab::with_client(http);
         let cfg = ProviderCfg {
             timeout_secs: 10,
             token: None,
             base_url: None,
+            exclude_topics: vec![],
         };
         let filter = LanguageFilter::new(vec![]);
 
@@ -157,7 +212,7 @@ mod tests {
                 for repo in repos {
                     assert_eq!(repo.provider, "gitlab");
                     assert_eq!(repo.icon, "[GL]");
-                    assert!(repo.approximated);
+                    assert!(repo.last_activity.is_some());
                 }
             }
             Err(e) => {

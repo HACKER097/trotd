@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Normalized repository structure across all providers
@@ -12,7 +13,9 @@ pub struct Repo {
     pub url: String,
     pub stars_today: Option<u64>,
     pub stars_total: Option<u64>,
-    pub approximated: bool,
+    pub last_activity: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub topics: Vec<String>,
 }
 
 /// Configuration for provider behavior
@@ -22,6 +25,7 @@ pub struct ProviderCfg {
     pub timeout_secs: u64,
     pub token: Option<String>,
     pub base_url: Option<String>, // For Gitea
+    pub exclude_topics: Vec<String>, // For GitHub
 }
 
 /// Language filter configuration
