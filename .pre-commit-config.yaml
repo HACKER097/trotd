@@ -1,0 +1,23 @@
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets --all-features -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-nextest
+        name: cargo nextest run
+        entry: bash -c 'if command -v cargo-nextest &> /dev/null; then cargo nextest run; else cargo test; fi'
+        language: system
+        types: [rust]
+        pass_filenames: false

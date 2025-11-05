@@ -1,0 +1,40 @@
+# trotd configuration file
+# Place in ~/.config/trotd/trotd.toml or ./trotd.toml
+
+[general]
+# Maximum repositories per provider
+max_per_provider = 3
+
+# HTTP request timeout in seconds
+timeout_secs = 6
+
+# Cache time-to-live in minutes
+cache_ttl_mins = 60
+
+# Filter by programming languages (empty = all languages)
+# language_filter = ["rust", "go", "python"]
+language_filter = []
+
+[providers]
+# Enable/disable individual providers
+github = true
+gitlab = true
+gitea = true
+
+[auth]
+# Optional authentication tokens for higher rate limits
+# GitHub: https://github.com/settings/tokens
+# GitLab: https://gitlab.com/-/profile/personal_access_tokens
+# Gitea: {instance}/user/settings/applications
+
+github_token = ""
+gitlab_token = ""
+gitea_token = ""
+
+[gitea]
+# Base URL for Gitea instance
+# Examples:
+#   - https://gitea.com (default)
+#   - https://codeberg.org
+#   - https://your-self-hosted-gitea.com
+base_url = "https://gitea.com"

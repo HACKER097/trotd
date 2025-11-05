@@ -1,0 +1,9 @@
+[profile.default]
+retries = 0
+fail-fast = false
+failure-output = "immediate"
+success-output = "never"
+
+[profile.ci]
+retries = 2
+fail-fast = true
